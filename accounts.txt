@@ -1,0 +1,12 @@
+accounts: 
+Admin: 
+admin@sdp.local Pass: SO92srKs7TUN5_s1E0M_-g_L
+
+Manager:
+Manager2@sdp.com  Pass: Manager2@sdp
+
+Staff:
+Staff1@sdp.com Pass: Staff@12345678
+
+Viewer: 
+Viewer1@sdp.com Pass: Viewer1@sdp123

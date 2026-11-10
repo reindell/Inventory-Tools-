@@ -1,0 +1,51 @@
+name: Verify SDP Inventory
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_PID: Express
+          MSSQL_SA_PASSWORD: 'Ci-Sdp-Only!2z3'
+        ports: ['1433:1433']
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Ci-Sdp-Only!2z3' -C -Q 'SELECT 1' -b"
+          --health-interval 5s --health-timeout 5s --health-retries 30 --health-start-period 40s
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Create isolated SQL Server databases
+        run: node --input-type=module -e "import sql from 'mssql'; const pool=await new sql.ConnectionPool({server:'localhost',user:'sa',password:process.env.CI_SQL_PASSWORD,database:'master',options:{encrypt:true,trustServerCertificate:true}}).connect(); await pool.request().batch('CREATE DATABASE sdp_test COLLATE Latin1_General_100_BIN2; CREATE DATABASE sdp_e2e COLLATE Latin1_General_100_BIN2;'); await pool.close();"
+        env:
+          CI_SQL_PASSWORD: 'Ci-Sdp-Only!2z3'
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          TEST_DATABASE_URL: mssql://sa:Ci-Sdp-Only!2z3@localhost:1433/sdp_test?encrypt=true&trustServerCertificate=true
+          LOG_LEVEL: silent
+      - run: npm run brand:generate
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          E2E_DATABASE_URL: mssql://sa:Ci-Sdp-Only!2z3@localhost:1433/sdp_e2e?encrypt=true&trustServerCertificate=true
+          SMTP_URL: ''
+      - run: npm audit --audit-level=moderate
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-results
+          path: |
+            playwright-report/
+            test-results/

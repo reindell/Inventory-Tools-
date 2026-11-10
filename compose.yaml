@@ -1,0 +1,119 @@
+name: sdp-inventory
+x-common: &common
+  NODE_ENV: production
+  APP_ORIGIN: ${APP_ORIGIN:?Set APP_ORIGIN in .env}
+  JWT_SECRET: ${JWT_SECRET:?Generate JWT_SECRET}
+  COOKIE_SECRET: ${COOKIE_SECRET:?Generate COOKIE_SECRET}
+  STORAGE_DRIVER: s3
+  S3_ENDPOINT: http://minio:9000
+  S3_BUCKET: sdp-private
+  S3_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?Generate S3_ACCESS_KEY}
+  AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?Generate S3_SECRET_KEY}
+  SMTP_URL: ${SMTP_URL:?Set a working SMTP_URL in .env}
+  EMAIL_FROM: ${EMAIL_FROM:?Set EMAIL_FROM}
+services:
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    environment:
+      APP_HOST: ${APP_HOST:?Set APP_HOST}
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app: { condition: service_healthy }
+    security_opt: ['no-new-privileges:true']
+  app:
+    image: sdp-inventory:local
+    build: .
+    restart: unless-stopped
+    environment:
+      <<: *common
+      DATABASE_URL: mssql://sdp_app:${APP_DB_PASSWORD:?Generate APP_DB_PASSWORD}@sqlserver:1433/sdp?encrypt=true&trustServerCertificate=${SQLSERVER_TRUST_SERVER_CERTIFICATE:-true}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      storage-init: { condition: service_completed_successfully }
+    volumes: ['app_data:/app/.data']
+    read_only: true
+    tmpfs: ['/tmp:size=128m,mode=1777']
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 128
+    security_opt: ['no-new-privileges:true']
+  migrate:
+    image: sdp-inventory:local
+    build: .
+    command: ['node', 'infra/mssql-bootstrap.mjs']
+    environment:
+      <<: *common
+      DATABASE_URL: mssql://sdp_owner:${DB_PASSWORD:?Generate DB_PASSWORD}@sqlserver:1433/sdp?encrypt=true&trustServerCertificate=${SQLSERVER_TRUST_SERVER_CERTIFICATE:-true}
+      SQLSERVER_SERVER: sqlserver
+      SQLSERVER_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:?Generate SQLSERVER_SA_PASSWORD}
+      SQLSERVER_TRUST_SERVER_CERTIFICATE: ${SQLSERVER_TRUST_SERVER_CERTIFICATE:-true}
+      DB_PASSWORD: ${DB_PASSWORD:?Generate DB_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Generate APP_DB_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Generate ADMIN_PASSWORD}
+      SEED_SAMPLE_DATA: ${SEED_SAMPLE_DATA:-false}
+    depends_on:
+      sqlserver: { condition: service_healthy }
+    restart: 'no'
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_PID: Express
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:?Generate SQLSERVER_SA_PASSWORD}
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'SQLCMDPASSWORD="$$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -Q "SELECT 1" -b -o /dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    mem_limit: 3g
+    security_opt: ['no-new-privileges:true']
+  minio:
+    image: sdp-object-storage:local
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.minio
+    command: server /data --console-address ':9001'
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sdp-storage-root}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Generate MINIO_ROOT_PASSWORD}
+    volumes: ['minio_data:/data']
+    security_opt: ['no-new-privileges:true']
+  storage-init:
+    image: sdp-object-storage:local
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.minio
+    entrypoint: ['/bin/sh', '/setup/init-storage.sh']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sdp-storage-root}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Generate MINIO_ROOT_PASSWORD}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Generate S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Generate S3_SECRET_KEY}
+    volumes:
+      - ./infra/init-storage.sh:/setup/init-storage.sh:ro
+      - ./infra/storage-policy.json:/setup/policy.json:ro
+    depends_on:
+      minio: { condition: service_started }
+    restart: 'no'
+volumes:
+  sqlserver_data:
+  minio_data:
+  app_data:
+  caddy_data:
+  caddy_config:

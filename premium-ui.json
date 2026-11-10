@@ -1,0 +1,15 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["src"],
+  "locale": "en",
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": ["Select/Listbox", "Date", "Form", "Scrollbar", "Toast", "CRUD"],
+  "ownership": { "Select/Listbox": "native", "Date": "native" },
+  "requiredCommands": ["unit", "e2e", "accessibility"],
+  "commands": {
+    "unit": "npm test",
+    "e2e": "npm run test:e2e",
+    "accessibility": "npm run test:a11y"
+  },
+  "evidence": { "crudFullFlow": "tests/e2e/inventory.spec.ts", "failurePaths": "tests/api.test.ts" }
+}

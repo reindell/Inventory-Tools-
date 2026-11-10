@@ -1,0 +1,10 @@
+{$APP_HOST} {
+  # Private server: trust this Caddy CA on client devices before use.
+  # For a public, resolvable domain with ACME access, remove this line.
+  tls internal
+  encode zstd gzip
+  request_body {
+    max_size 12MB
+  }
+  reverse_proxy app:3001
+}

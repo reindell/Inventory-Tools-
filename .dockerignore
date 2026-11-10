@@ -1,0 +1,14 @@
+node_modules
+.data
+.tmp
+.env
+.env.*.local
+.git
+dist
+dist-server
+test-results
+playwright-report
+coverage
+docs/screenshots
+Sample of tools and jigs
+*.log
